@@ -43,6 +43,29 @@ def _today_bars(closes: pd.Series, session: date) -> pd.Series:
     return closes.tail(min(len(closes), 32))
 
 
+def _break_time_gaps(series: pd.Series, gap_factor: float = 2.0) -> Tuple[list, list]:
+    """Return x/y for plotting with NaN inserted across large time gaps.
+
+    Prevents matplotlib from drawing a straight diagonal across breaks such as
+    the overnight gap between two trading sessions.
+    """
+    idx = series.index
+    if len(idx) < 3:
+        return list(idx), list(series.values)
+
+    diffs = idx.to_series().diff().dropna()
+    threshold = diffs.median() * gap_factor
+    xs: list = [idx[0]]
+    ys: list = [series.iloc[0]]
+    for i in range(1, len(idx)):
+        if idx[i] - idx[i - 1] > threshold:
+            xs.append(idx[i - 1] + (idx[i] - idx[i - 1]) / 2)
+            ys.append(np.nan)
+        xs.append(idx[i])
+        ys.append(series.iloc[i])
+    return xs, ys
+
+
 def _forecast_index(last_ts: pd.Timestamp, horizon: int, bar_minutes: int) -> pd.DatetimeIndex:
     return pd.date_range(
         last_ts + pd.Timedelta(minutes=bar_minutes),
@@ -155,7 +178,8 @@ def plot_predictions(
         forecast_idx = result["forecast_index"]
         current = result["current_price"]
 
-        ax.plot(history.index, history.values, color="#333333", linewidth=2, label="actual")
+        hist_x, hist_y = _break_time_gaps(history)
+        ax.plot(hist_x, hist_y, color="#333333", linewidth=2, label="actual")
         ax.axhline(current, color="#999999", linestyle=":", linewidth=1)
 
         bands = result["bands"]
