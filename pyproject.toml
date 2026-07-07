@@ -1,0 +1,31 @@
+[project]
+name = "prediction_stk"
+version = "0.1.0"
+description = "Stock prediction package focused on robotics, semiconductor, energy, and mega-cap cross-correlation modeling."
+readme = "README.md"
+authors = [
+  {name = "Prediction Stk"}
+]
+requires-python = ">=3.11"
+license = {text = "MIT"}
+dependencies = [
+  "pandas>=2.2",
+  "numpy>=2.0",
+  "scikit-learn>=1.3",
+  "statsmodels>=0.14",
+  "requests>=2.31",
+  "pydantic>=2.8",
+  "aiohttp>=3.9",
+  "tqdm>=4.66",
+  "matplotlib>=3.9",
+  "scipy>=1.11",
+  "torch>=2.1",
+  "sqlitedict>=2.0"
+]
+
+[project.scripts]
+prediction_stk = "prediction_stk.cli:main"
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
