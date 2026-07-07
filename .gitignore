@@ -15,3 +15,5 @@ env/
 .coverage
 htmlcov/
 miniconda.sh
+outputs/
+.news_cache/
