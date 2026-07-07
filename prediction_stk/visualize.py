@@ -14,6 +14,7 @@ from .backtest import backtest_series, forecast_all
 from .data import DEFAULT_SYMBOLS, SECTOR_SYMBOLS, StockDataFetcher
 from .horizon import HorizonProfile, forecast_index, get_profile, history_window
 from .models import ModelManager
+from .news import NewsConfig, news_exog_for_symbol, project_news_features
 
 MODEL_COLORS = {
     "arima": "#e45756",
@@ -95,6 +96,7 @@ def forecast_symbol(
     model_manager: ModelManager,
     profile: HorizonProfile,
     models: Sequence[str],
+    news_config: Optional[NewsConfig] = None,
 ) -> Optional[Dict]:
     forecast_length = profile.steps
     closes = fetcher.fetch_symbol(symbol)["close"].dropna()
@@ -103,12 +105,24 @@ def forecast_symbol(
 
     session = closes.index[-1].date()
     hist = history_window(closes, profile)
+
+    exog = exog_future = None
+    if news_config is not None and news_config.enabled:
+        feats = news_exog_for_symbol(symbol, closes.index, news_config)
+        if feats is not None and feats.to_numpy().any():
+            exog = feats.to_numpy(dtype=float)
+            exog_future = project_news_features(
+                feats, forecast_length, news_config.half_life_bars
+            )
+
     preds = forecast_all(
         closes.values,
         forecast_length=forecast_length,
         models=models,
         transformer_config=model_manager.transformer_config,
         device=model_manager.device,
+        exog=exog,
+        exog_future=exog_future,
     )
     valid = {k: np.asarray(v, dtype=float) for k, v in preds.items() if v is not None}
     if not valid:
@@ -227,6 +241,7 @@ def run_forecast(
     steps: Optional[int] = None,
     prefer_gpu: bool = True,
     use_transformer: bool = True,
+    news_config: Optional[NewsConfig] = None,
 ) -> Tuple[List[Dict], Optional[Path]]:
     """Run the model ensemble for a horizon profile and optionally chart it.
 
@@ -260,7 +275,9 @@ def run_forecast(
 
     results: List[Dict] = []
     for symbol in symbols:
-        item = forecast_symbol(symbol, fetcher, model_manager, profile, models)
+        item = forecast_symbol(
+            symbol, fetcher, model_manager, profile, models, news_config
+        )
         if item is not None:
             results.append(item)
 

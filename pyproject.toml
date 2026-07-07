@@ -23,6 +23,11 @@ dependencies = [
   "sqlitedict>=2.0"
 ]
 
+[project.optional-dependencies]
+# News sentiment scoring (Phase 1). Optional: without it, --news degrades to
+# neutral features rather than failing.
+news = ["anthropic>=0.40"]
+
 [project.scripts]
 prediction_stk = "prediction_stk.cli:main"
 

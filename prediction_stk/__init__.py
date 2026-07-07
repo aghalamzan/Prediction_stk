@@ -6,6 +6,7 @@ from .agents import AgentManager
 from .recommendation import RecommendationEngine
 from .transformer import TransformerForecaster, TimeSeriesTransformer, resolve_device
 from .horizon import HorizonProfile, PROFILES, get_profile
+from .news import NewsConfig, NewsFetcher, ClaudeSentimentScorer, build_news_features
 from .visualize import run_forecast, format_summary
 
 __all__ = [
@@ -23,4 +24,8 @@ __all__ = [
     "get_profile",
     "run_forecast",
     "format_summary",
+    "NewsConfig",
+    "NewsFetcher",
+    "ClaudeSentimentScorer",
+    "build_news_features",
 ]

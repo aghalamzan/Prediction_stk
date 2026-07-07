@@ -19,20 +19,39 @@ from statsmodels.tsa.arima.model import ARIMA
 from .transformer import TransformerForecaster
 
 
-def _fit_predict_arima(train: np.ndarray, horizon: int) -> Optional[np.ndarray]:
+def _fit_predict_arima(
+    train: np.ndarray,
+    horizon: int,
+    exog: Optional[np.ndarray] = None,
+    exog_future: Optional[np.ndarray] = None,
+) -> Optional[np.ndarray]:
     try:
+        if exog is not None and exog_future is not None:
+            # ARIMAX: news features enter as exogenous regressors.
+            fit = ARIMA(train, exog=exog, order=(1, 1, 1)).fit()
+            return np.asarray(fit.forecast(steps=horizon, exog=exog_future))
         fit = ARIMA(train, order=(1, 1, 1)).fit()
         return np.asarray(fit.forecast(steps=horizon))
     except Exception:
         return None
 
 
-def _fit_predict_linear(train: np.ndarray, horizon: int) -> Optional[np.ndarray]:
+def _fit_predict_linear(
+    train: np.ndarray,
+    horizon: int,
+    exog: Optional[np.ndarray] = None,
+    exog_future: Optional[np.ndarray] = None,
+) -> Optional[np.ndarray]:
     try:
-        X = np.arange(len(train)).reshape(-1, 1)
+        idx = np.arange(len(train)).reshape(-1, 1)
+        future_idx = np.arange(len(train), len(train) + horizon).reshape(-1, 1)
+        if exog is not None and exog_future is not None:
+            X = np.hstack([idx, np.asarray(exog, dtype=float)])
+            future = np.hstack([future_idx, np.asarray(exog_future, dtype=float)])
+        else:
+            X, future = idx, future_idx
         pipe = Pipeline([("scale", StandardScaler()), ("lr", LinearRegression())])
         pipe.fit(X, train)
-        future = np.arange(len(train), len(train) + horizon).reshape(-1, 1)
         return pipe.predict(future)
     except Exception:
         return None
@@ -54,18 +73,23 @@ def forecast_all(
     models: Sequence[str] = ("arima", "linear", "transformer"),
     transformer_config: Optional[dict] = None,
     device=None,
+    exog: Optional[np.ndarray] = None,
+    exog_future: Optional[np.ndarray] = None,
 ) -> Dict[str, Optional[np.ndarray]]:
     """Fit each model on the full series and return its forecast array.
 
     Shares the exact fit/predict paths used by :func:`backtest_series`, so a
-    model's live forecast is generated the same way it was scored.
+    model's live forecast is generated the same way it was scored. When ``exog``
+    (per-bar news features) and ``exog_future`` (their projection over the
+    horizon) are supplied, ARIMA becomes ARIMAX and the linear model gains the
+    news columns; the transformer stays univariate (Phase 2).
     """
     y = np.asarray(series, dtype=float).ravel()
     out: Dict[str, Optional[np.ndarray]] = {}
     if "arima" in models:
-        out["arima"] = _fit_predict_arima(y, forecast_length)
+        out["arima"] = _fit_predict_arima(y, forecast_length, exog, exog_future)
     if "linear" in models:
-        out["linear"] = _fit_predict_linear(y, forecast_length)
+        out["linear"] = _fit_predict_linear(y, forecast_length, exog, exog_future)
     if "transformer" in models:
         out["transformer"] = _fit_predict_transformer(y, forecast_length, transformer_config, device)
     return out

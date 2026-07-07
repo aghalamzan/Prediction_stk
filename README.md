@@ -54,6 +54,33 @@ prediction_stk visualize --symbols SERV                      # intraday (~5h)
 # options: --horizon N (override bars) | --no-chart | --cpu | --no-transformer
 ```
 
+### News-informed forecasts (Phase 1)
+
+Add `--news` to fold news sentiment into the forecast as an exogenous input.
+The pipeline fetches company headlines from **Finnhub**, scores each with
+**Claude (Haiku)** in `[-1, 1]`, decays them onto the price bars, and feeds the
+result to **ARIMAX** and the **linear** model (the transformer stays univariate
+for now).
+
+```bash
+export FINNHUB_API_KEY=...      # real publish timestamps -> honest backtests
+export ANTHROPIC_API_KEY=...    # or use an `ant auth login` profile
+prediction_stk forecast --profile week --symbols SERV --news
+# --news-half-life N  tunes how fast a headline's influence fades (in bars)
+```
+
+Everything degrades gracefully: a missing key, a missing `anthropic` SDK, or a
+network error logs a warning and yields neutral (zero) features, so forecasting
+never breaks. Features are **strictly causal** — a bar only sees headlines
+published at or before it — and Claude scores are cached on disk (keyed by
+headline hash) so repeated backtests don't re-pay the API.
+
+```python
+from prediction_stk import run_forecast, NewsConfig
+results, _ = run_forecast(["SERV"], profile="week", output_dir=None,
+                          news_config=NewsConfig(enabled=True, half_life_bars=8))
+```
+
 ### GPU transformer
 
 The transformer forecaster trains and predicts on CUDA automatically when a GPU

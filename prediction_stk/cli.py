@@ -3,6 +3,7 @@ import argparse
 from .core import StockPipeline
 from .daily import DailyAdvisor, format_report
 from .horizon import PROFILES
+from .news import NewsConfig
 from .visualize import format_summary, run_forecast
 
 
@@ -13,6 +14,7 @@ def _run_pipeline(args):
 
 def _run_forecast(args):
     config_symbols = [s.strip().upper() for s in args.symbols.split(",")] if args.symbols else None
+    news_config = NewsConfig(enabled=True, half_life_bars=args.news_half_life) if args.news else None
     results, chart_path = run_forecast(
         symbols=config_symbols,
         profile=args.profile,
@@ -20,6 +22,7 @@ def _run_forecast(args):
         steps=args.horizon,
         prefer_gpu=not args.cpu,
         use_transformer=not args.no_transformer,
+        news_config=news_config,
     )
     print(format_summary(results))
     if chart_path is not None:
@@ -62,6 +65,10 @@ def main():
                        help="Override the profile's forecast length (bars)")
         p.add_argument("--no-chart", action="store_true", dest="no_chart",
                        help="Skip the PNG chart, print the summary only")
+        p.add_argument("--news", action="store_true",
+                       help="Add news sentiment as an exogenous input (needs FINNHUB/ANTHROPIC keys)")
+        p.add_argument("--news-half-life", type=float, default=12.0, dest="news_half_life",
+                       help="Half-life of a headline's influence, in bars")
         p.add_argument("--cpu", action="store_true", help="Force CPU instead of GPU")
         p.add_argument("--no-transformer", action="store_true", dest="no_transformer")
         p.set_defaults(func=_run_forecast)
