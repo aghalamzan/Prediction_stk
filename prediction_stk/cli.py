@@ -2,11 +2,25 @@ import argparse
 
 from .core import StockPipeline
 from .daily import DailyAdvisor, format_report
+from .visualize import format_summary, run_visualization
 
 
 def _run_pipeline(args):
     pipeline = StockPipeline()
     print(pipeline.run())
+
+
+def _run_visualize(args):
+    config_symbols = [s.strip().upper() for s in args.symbols.split(",")] if args.symbols else None
+    results, chart_path = run_visualization(
+        symbols=config_symbols,
+        output_dir=args.output_dir,
+        forecast_length=args.horizon,
+        prefer_gpu=not args.cpu,
+        use_transformer=not args.no_transformer,
+    )
+    print(format_summary(results))
+    print(f"\nChart saved to: {chart_path.resolve()}")
 
 
 def _run_daily(args):
@@ -30,6 +44,15 @@ def main():
     parser = argparse.ArgumentParser(description="Stock prediction pipeline")
     parser.add_argument("--config", help="Path to config file", default=None)
     sub = parser.add_subparsers(dest="command")
+
+    viz = sub.add_parser("visualize", help="Run models and plot intraday forecasts for today")
+    viz.add_argument("--symbols", default=None,
+                     help="Comma-separated tickers (default: mega-cap + sector set)")
+    viz.add_argument("--output-dir", default="outputs", dest="output_dir")
+    viz.add_argument("--horizon", type=int, default=20, help="Forecast length in 15-min bars")
+    viz.add_argument("--cpu", action="store_true", help="Force CPU instead of GPU")
+    viz.add_argument("--no-transformer", action="store_true", dest="no_transformer")
+    viz.set_defaults(func=_run_visualize)
 
     daily = sub.add_parser("daily", help="Daily position-aware recommendation for one symbol")
     daily.add_argument("--symbol", required=True, help="Ticker, e.g. SERV")

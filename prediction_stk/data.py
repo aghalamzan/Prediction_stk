@@ -6,8 +6,9 @@ from typing import Dict, List, Optional
 
 DEFAULT_SYMBOLS = ["NVDA", "MSFT", "META", "GOOGL", "AAPL", "AMZN"]
 SECTOR_SYMBOLS = {
+    "robotics": ["SERV"],
     "semiconductor": ["NVDA"],
-    "energy": ["XOM", "CVX"]
+    "energy": ["XOM", "CVX"],
 }
 
 class StockDataFetcher:
