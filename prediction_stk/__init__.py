@@ -5,6 +5,8 @@ from .analysis import Analyzer
 from .agents import AgentManager
 from .recommendation import RecommendationEngine
 from .transformer import TransformerForecaster, TimeSeriesTransformer, resolve_device
+from .horizon import HorizonProfile, PROFILES, get_profile
+from .visualize import run_forecast, format_summary
 
 __all__ = [
     "StockPipeline",
@@ -16,4 +18,9 @@ __all__ = [
     "TransformerForecaster",
     "TimeSeriesTransformer",
     "resolve_device",
+    "HorizonProfile",
+    "PROFILES",
+    "get_profile",
+    "run_forecast",
+    "format_summary",
 ]

@@ -1,6 +1,7 @@
-"""Generate intraday forecast charts for today's session."""
+"""Generate forecast charts across horizons (intraday, weekly, monthly)."""
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -11,6 +12,7 @@ import pandas as pd
 
 from .backtest import backtest_series, forecast_all
 from .data import DEFAULT_SYMBOLS, SECTOR_SYMBOLS, StockDataFetcher
+from .horizon import HorizonProfile, forecast_index, get_profile, history_window
 from .models import ModelManager
 
 MODEL_COLORS = {
@@ -29,18 +31,6 @@ def default_symbols() -> List[str]:
             seen.add(sym)
             out.append(sym)
     return out
-
-
-def _session_date(closes: pd.Series) -> date:
-    return closes.index[-1].date()
-
-
-def _today_bars(closes: pd.Series, session: date) -> pd.Series:
-    day = closes.index.normalize() == pd.Timestamp(session)
-    session_closes = closes.loc[day]
-    if len(session_closes) >= 8:
-        return session_closes
-    return closes.tail(min(len(closes), 32))
 
 
 def _break_time_gaps(series: pd.Series, gap_factor: float = 2.0) -> Tuple[list, list]:
@@ -64,14 +54,6 @@ def _break_time_gaps(series: pd.Series, gap_factor: float = 2.0) -> Tuple[list, 
         xs.append(idx[i])
         ys.append(series.iloc[i])
     return xs, ys
-
-
-def _forecast_index(last_ts: pd.Timestamp, horizon: int, bar_minutes: int) -> pd.DatetimeIndex:
-    return pd.date_range(
-        last_ts + pd.Timedelta(minutes=bar_minutes),
-        periods=horizon,
-        freq=f"{bar_minutes}min",
-    )
 
 
 def compute_confidence_bands(
@@ -111,16 +93,16 @@ def forecast_symbol(
     symbol: str,
     fetcher: StockDataFetcher,
     model_manager: ModelManager,
-    forecast_length: int,
-    bar_minutes: int,
+    profile: HorizonProfile,
     models: Sequence[str],
 ) -> Optional[Dict]:
+    forecast_length = profile.steps
     closes = fetcher.fetch_symbol(symbol)["close"].dropna()
-    if len(closes) < 24:
+    if len(closes) < max(24, forecast_length * 2):
         return None
 
-    session = _session_date(closes)
-    today = _today_bars(closes, session)
+    session = closes.index[-1].date()
+    hist = history_window(closes, profile)
     preds = forecast_all(
         closes.values,
         forecast_length=forecast_length,
@@ -132,8 +114,7 @@ def forecast_symbol(
     if not valid:
         return None
 
-    last_ts = today.index[-1]
-    forecast_idx = _forecast_index(last_ts, forecast_length, bar_minutes)
+    forecast_idx = forecast_index(hist.index[-1], profile)
     bands = compute_confidence_bands(
         valid,
         backtest_rmse=_backtest_rmse(closes.values, forecast_length, models),
@@ -141,8 +122,9 @@ def forecast_symbol(
     return {
         "symbol": symbol,
         "session": session,
-        "current_price": float(today.iloc[-1]),
-        "history": today,
+        "profile": profile,
+        "current_price": float(hist.iloc[-1]),
+        "history": hist,
         "forecast_index": forecast_idx,
         "predictions": valid,
         "bands": bands,
@@ -165,8 +147,10 @@ def plot_predictions(
     rows = (n + cols - 1) // cols
     fig, axes = plt.subplots(rows, cols, figsize=(14, 3.6 * rows), squeeze=False)
     session = title_date or results[0]["session"]
+    profile = results[0].get("profile")
+    horizon_label = f" ({profile.label})" if profile and profile.label else ""
     fig.suptitle(
-        f"Intraday forecasts — session {session.isoformat()}",
+        f"Forecasts{horizon_label} — from {session.isoformat()}",
         fontsize=14,
         fontweight="bold",
         y=0.995,
@@ -236,20 +220,36 @@ def plot_predictions(
     return output_path
 
 
-def run_visualization(
+def run_forecast(
     symbols: Optional[Sequence[str]] = None,
-    output_dir: str | Path = "outputs",
-    forecast_length: int = 20,
-    bar_minutes: int = 15,
+    profile: str | HorizonProfile = "intraday",
+    output_dir: Optional[str | Path] = "outputs",
+    steps: Optional[int] = None,
     prefer_gpu: bool = True,
     use_transformer: bool = True,
-    history_range: str = "5d",
-) -> Tuple[List[Dict], Path]:
+) -> Tuple[List[Dict], Optional[Path]]:
+    """Run the model ensemble for a horizon profile and optionally chart it.
+
+    Args:
+        symbols: Tickers to forecast; defaults to the mega-cap + sector set.
+        profile: A :class:`HorizonProfile` or its name (``"intraday"``,
+            ``"week"``, ``"month"``) selecting bar interval, lookback, calendar.
+        output_dir: Directory for the PNG chart; pass ``None`` to skip plotting.
+        steps: Override the profile's forecast length (bars).
+        prefer_gpu / use_transformer: Model toggles.
+
+    Returns:
+        ``(results, chart_path)`` where ``chart_path`` is ``None`` when
+        ``output_dir`` is ``None``.
+    """
+    profile = get_profile(profile) if isinstance(profile, str) else profile
+    if steps is not None:
+        profile = replace(profile, steps=steps)
     symbols = list(symbols or default_symbols())
     config = {
-        "interval": f"{bar_minutes}m",
-        "range": history_range,
-        "forecast_length": forecast_length,
+        "interval": profile.interval,
+        "range": profile.lookback,
+        "forecast_length": profile.steps,
         "prefer_gpu": prefer_gpu,
         "use_transformer": use_transformer,
         "transformer": {"epochs": 80, "batch_size": 512},
@@ -260,20 +260,39 @@ def run_visualization(
 
     results: List[Dict] = []
     for symbol in symbols:
-        item = forecast_symbol(
-            symbol, fetcher, model_manager, forecast_length, bar_minutes, models
-        )
+        item = forecast_symbol(symbol, fetcher, model_manager, profile, models)
         if item is not None:
             results.append(item)
 
     if not results:
         raise RuntimeError("No symbols produced forecasts — check market data availability.")
 
-    session = results[0]["session"]
-    stamp = datetime.now().strftime("%Y%m%d_%H%M")
-    output_path = Path(output_dir) / f"predictions_{session.isoformat()}_{stamp}.png"
-    plot_predictions(results, output_path, title_date=session)
-    return results, output_path
+    chart_path: Optional[Path] = None
+    if output_dir is not None:
+        session = results[0]["session"]
+        stamp = datetime.now().strftime("%Y%m%d_%H%M")
+        chart_path = Path(output_dir) / f"predictions_{profile.name}_{session.isoformat()}_{stamp}.png"
+        plot_predictions(results, chart_path, title_date=session)
+    return results, chart_path
+
+
+# Backwards-compatible alias for the original intraday entry point.
+def run_visualization(
+    symbols: Optional[Sequence[str]] = None,
+    output_dir: str | Path = "outputs",
+    forecast_length: int = 20,
+    prefer_gpu: bool = True,
+    use_transformer: bool = True,
+) -> Tuple[List[Dict], Path]:
+    results, chart_path = run_forecast(
+        symbols=symbols,
+        profile="intraday",
+        output_dir=output_dir,
+        steps=forecast_length,
+        prefer_gpu=prefer_gpu,
+        use_transformer=use_transformer,
+    )
+    return results, chart_path
 
 
 def format_summary(results: Sequence[Dict]) -> str:

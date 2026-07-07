@@ -26,6 +26,34 @@ pipeline = StockPipeline()
 pipeline.run()
 ```
 
+### Horizon profiles (intraday / week / month)
+
+`run_forecast` is a callable component that runs the model ensemble at a chosen
+time scale. Each **profile** sets the bar interval, lookback, forecast length,
+and calendar. The `week` and `month` profiles use daily bars and a **business-day**
+forecast index, so weekends are skipped automatically.
+
+```python
+from prediction_stk import run_forecast, PROFILES
+
+# One trading week ahead (5 working days) for SERV, no chart:
+results, _ = run_forecast(["SERV"], profile="week", output_dir=None)
+
+# Override a profile's length, e.g. 10 working days:
+results, chart = run_forecast(["SERV"], profile="week", steps=10)
+
+print(sorted(PROFILES))  # ['intraday', 'month', 'week']
+```
+
+From the CLI:
+
+```bash
+prediction_stk forecast --profile week --symbols SERV,NVDA   # 5 working days
+prediction_stk forecast --profile month --symbols SERV       # ~21 working days
+prediction_stk visualize --symbols SERV                      # intraday (~5h)
+# options: --horizon N (override bars) | --no-chart | --cpu | --no-transformer
+```
+
 ### GPU transformer
 
 The transformer forecaster trains and predicts on CUDA automatically when a GPU
